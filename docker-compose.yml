@@ -1,0 +1,81 @@
+version: "3.9"
+
+services:
+  # ── API FastAPI ──────────────────────────────────────────────────────────────
+  api:
+    build:
+      context: ./api
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./api/data:/app/data
+      - comply_chroma:/app/chroma_db
+    env_file:
+      - ./api/.env
+    environment:
+      - DATA_DIR=/app/data
+      - VECTOR_DB_PATH=/app/chroma_db
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    networks:
+      - comply-net
+
+  # ── Frontend Next.js ─────────────────────────────────────────────────────────
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "3002:3000"
+    environment:
+      - NEXT_PUBLIC_API_URL=http://localhost:8000
+      - API_URL=http://api:8000
+    depends_on:
+      - api
+    networks:
+      - comply-net
+
+  # ── Slack Bot (optionnel) ────────────────────────────────────────────────────
+  slack-bot:
+    build:
+      context: ./slack-bot
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      - API_URL=http://api:8000
+    env_file:
+      - ./slack-bot/.env
+    depends_on:
+      - api
+    profiles:
+      - slack
+    networks:
+      - comply-net
+
+  # ── Scraper (one-shot, lancer manuellement) ──────────────────────────────────
+  scraper:
+    build:
+      context: ./scraper
+      dockerfile: Dockerfile
+    volumes:
+      - ./api/data:/app/output
+    env_file:
+      - ./scraper/.env
+    profiles:
+      - scraper
+    networks:
+      - comply-net
+
+volumes:
+  comply_chroma:
+
+networks:
+  comply-net:
+    driver: bridge
