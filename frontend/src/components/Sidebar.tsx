@@ -1,12 +1,13 @@
 "use client";
 
-import { Plus, MessageSquare, Trash2, ChevronRight } from "lucide-react";
-import { Conversation } from "@/types";
+import { Plus, MessageSquare, Trash2 } from "lucide-react";
+import { AuthUser, Conversation } from "@/types";
 
 interface SidebarProps {
   open: boolean;
   conversations: Conversation[];
   activeId: string | null;
+  user: AuthUser | null;
   onSelectConversation: (id: string) => void;
   onNewConversation: () => void;
   onDeleteConversation: (id: string) => void;
@@ -16,32 +17,25 @@ export default function Sidebar({
   open,
   conversations,
   activeId,
+  user,
   onSelectConversation,
   onNewConversation,
   onDeleteConversation,
 }: SidebarProps) {
   return (
-    <aside
-      className={`
-        flex flex-col bg-comply-950 text-white transition-all duration-300 ease-in-out overflow-hidden
-        ${open ? "w-64" : "w-0"}
-        border-r border-comply-900
-      `}
-    >
+    <aside className={`flex flex-col bg-comply-950 text-white transition-all duration-300 ease-in-out overflow-hidden ${open ? "w-64" : "w-0"} border-r border-comply-900`}>
       {open && (
         <div className="flex flex-col h-full w-64">
-          {/* Header sidebar */}
+          {/* Nouvelle conversation */}
           <div className="p-4 border-b border-comply-800">
-            <button
-              onClick={onNewConversation}
-              className="w-full flex items-center gap-2.5 bg-comply-600 hover:bg-comply-500 text-white rounded-xl px-4 py-2.5 font-medium text-sm transition-colors shadow-sm"
-            >
+            <button onClick={onNewConversation}
+              className="w-full flex items-center gap-2.5 bg-comply-600 hover:bg-comply-500 text-white rounded-xl px-4 py-2.5 font-medium text-sm transition-colors shadow-sm">
               <Plus className="w-4 h-4" />
               Nouvelle conversation
             </button>
           </div>
 
-          {/* Liste des conversations */}
+          {/* Liste */}
           <div className="flex-1 overflow-y-auto py-2">
             {conversations.length === 0 ? (
               <div className="px-4 py-8 text-center">
@@ -51,28 +45,16 @@ export default function Sidebar({
             ) : (
               <div className="space-y-0.5 px-2">
                 {conversations.map((conv) => (
-                  <div
-                    key={conv.id}
-                    className={`
-                      group flex items-center gap-2 rounded-lg px-3 py-2.5 cursor-pointer transition-colors
-                      ${activeId === conv.id
-                        ? "bg-comply-800 text-white"
-                        : "text-comply-300 hover:bg-comply-900 hover:text-white"
-                      }
-                    `}
-                    onClick={() => onSelectConversation(conv.id)}
-                  >
+                  <div key={conv.id}
+                    className={`group flex items-center gap-2 rounded-lg px-3 py-2.5 cursor-pointer transition-colors ${activeId === conv.id ? "bg-comply-800 text-white" : "text-comply-300 hover:bg-comply-900 hover:text-white"}`}
+                    onClick={() => onSelectConversation(conv.id)}>
                     <MessageSquare className="w-3.5 h-3.5 flex-shrink-0 opacity-60" />
                     <span className="flex-1 text-xs truncate leading-tight">
                       {conv.title || "Nouvelle conversation"}
                     </span>
                     <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onDeleteConversation(conv.id);
-                      }}
-                      className="opacity-0 group-hover:opacity-100 p-0.5 hover:text-red-400 transition-all"
-                    >
+                      onClick={(e) => { e.stopPropagation(); onDeleteConversation(conv.id); }}
+                      className="opacity-0 group-hover:opacity-100 p-0.5 hover:text-red-400 transition-all">
                       <Trash2 className="w-3 h-3" />
                     </button>
                   </div>
@@ -81,12 +63,24 @@ export default function Sidebar({
             )}
           </div>
 
-          {/* Footer sidebar */}
+          {/* Footer avec profil utilisateur */}
           <div className="p-4 border-t border-comply-800">
-            <div className="flex items-center gap-2 text-comply-500 text-xs">
-              <div className="w-1.5 h-1.5 bg-comply-600 rounded-full" />
-              <span>Comply v2.0 · SEPEFREI</span>
-            </div>
+            {user ? (
+              <div className="flex items-center gap-2.5">
+                <div className="w-7 h-7 rounded-full bg-comply-600 flex items-center justify-center text-white text-xs font-bold flex-shrink-0">
+                  {user.name.charAt(0).toUpperCase()}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-white text-xs font-medium truncate">{user.name}</p>
+                  <p className="text-comply-500 text-xs truncate">{user.email}</p>
+                </div>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2 text-comply-500 text-xs">
+                <div className="w-1.5 h-1.5 bg-comply-600 rounded-full" />
+                <span>Comply v2.0 · SEPEFREI</span>
+              </div>
+            )}
           </div>
         </div>
       )}

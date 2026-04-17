@@ -1,6 +1,16 @@
 version: "3.9"
 
 services:
+  # ── Redis Cache ──────────────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru
+    volumes:
+      - comply_redis:/data
+    networks:
+      - comply-net
+
   # ── API FastAPI ──────────────────────────────────────────────────────────────
   api:
     build:
@@ -17,6 +27,9 @@ services:
     environment:
       - DATA_DIR=/app/data
       - VECTOR_DB_PATH=/app/chroma_db
+      - REDIS_URL=redis://redis:6379
+    depends_on:
+      - redis
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 15s
@@ -39,6 +52,7 @@ services:
       - API_URL=http://api:8000
     depends_on:
       - api
+      - redis
     networks:
       - comply-net
 
@@ -75,6 +89,7 @@ services:
 
 volumes:
   comply_chroma:
+  comply_redis:
 
 networks:
   comply-net:

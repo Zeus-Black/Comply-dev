@@ -1,0 +1,20 @@
+[
+  {
+    "question": "Comment facturer une étude pour une Junior-Entreprise ?",
+    "answer": "Pour facturer une étude, la JE doit émettre une facture conforme mentionnant son numéro SIRET, la TVA si applicable, le détail des prestations et les coordonnées du client. La convention d'étude doit avoir été signée avant le début des travaux.",
+    "category": "Facturation",
+    "id": "faq-001"
+  },
+  {
+    "question": "Quelle est la durée maximale d'un mandat en JE ?",
+    "answer": "Les mandats au sein d'une Junior-Entreprise durent généralement un an, renouvelable une fois. Les statuts de chaque JE précisent les modalités exactes. La CNJE recommande un renouvellement annuel pour favoriser la transmission des compétences.",
+    "category": "Gouvernance",
+    "id": "faq-002"
+  },
+  {
+    "question": "La TVA s'applique-t-elle aux prestations d'une JE ?",
+    "answer": "Oui, les Junior-Entreprises sont assujetties à la TVA au taux normal de 20 % pour leurs prestations de services. Elles doivent donc collecter la TVA et la reverser à l'administration fiscale, sous réserve d'éventuelles franchises selon le chiffre d'affaires.",
+    "category": "Fiscalité",
+    "id": "faq-003"
+  }
+]

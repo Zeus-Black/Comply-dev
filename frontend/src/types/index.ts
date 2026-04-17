@@ -1,11 +1,16 @@
+export interface AuthUser {
+  id: string;
+  email: string;
+  name: string;
+}
+
 export interface Message {
   id: string;
   role: "user" | "assistant";
   content: string;
   timestamp: Date;
-  source?: "rag" | "web" | "ticket";
-  confidence?: number;
-  documentsFound?: number;
+  source?: "rag" | "web" | "ticket" | "cache";
+  model_used?: string;
   isStreaming?: boolean;
   attachments?: UploadedFile[];
 }
@@ -13,10 +18,11 @@ export interface Message {
 export interface Conversation {
   id: string;
   title: string;
+  session_id: string;
   messages: Message[];
   createdAt: Date;
   updatedAt: Date;
-  sessionId?: string;
+  message_count?: number;
 }
 
 export interface UploadedFile {
@@ -30,7 +36,6 @@ export interface UploadedFile {
 export interface ChatRequest {
   question: string;
   session_id?: string;
-  file_context?: string;
   model?: string;
 }
 

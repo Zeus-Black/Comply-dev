@@ -1,0 +1,39 @@
+{
+  "manifest_version": 3,
+  "name": "Comply — Assistant JE",
+  "version": "1.0.0",
+  "description": "Posez vos questions JE directement sur Notion, Google Drive et n'importe quelle page web.",
+  "permissions": ["activeTab", "storage", "scripting"],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Comply",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://www.notion.so/*",
+        "https://*.notion.site/*",
+        "https://docs.google.com/*",
+        "https://drive.google.com/*",
+        "https://*.junior-entreprises.com/*",
+        "https://*.notion.so/*"
+      ],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "web_accessible_resources": [
+    {
+      "resources": ["icons/*"],
+      "matches": ["<all_urls>"]
+    }
+  ]
+}

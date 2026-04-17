@@ -7,12 +7,21 @@ import Header, { MODELS } from "./Header";
 import Sidebar from "./Sidebar";
 import MessageBubble from "./MessageBubble";
 import { Conversation, Message, UploadedFile } from "@/types";
-import { streamChat, uploadDocument } from "@/lib/api";
+import {
+  streamChat,
+  uploadDocument,
+  fetchConversations,
+  createConversation,
+  fetchConversation,
+  deleteConversation,
+  saveMessage,
+} from "@/lib/api";
+import { getUser } from "@/lib/auth";
 
-const WELCOME_MESSAGE: Message = {
+const WELCOME_MESSAGE = (name?: string): Message => ({
   id: "welcome",
   role: "assistant",
-  content: `Bonjour ! Je suis **Comply**, l'assistant IA de SEPEFREI.
+  content: `Bonjour${name ? ` ${name}` : ""} ! Je suis **Comply**, l'assistant IA de SEPEFREI.
 
 Je peux vous aider avec :
 - **Kiwi Légal** — réglementation, statuts, contrats, comptabilité
@@ -26,7 +35,7 @@ Vous pouvez aussi joindre des documents pour que je les analyse.
 Comment puis-je vous aider aujourd'hui ?`,
   timestamp: new Date(),
   source: "rag",
-};
+});
 
 const SUGGESTED_QUESTIONS = [
   "Comment facturer une étude ?",
@@ -40,18 +49,21 @@ export default function ChatInterface() {
   const [selectedModel, setSelectedModel] = useState(MODELS[0].id);
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeConvId, setActiveConvId] = useState<string | null>(null);
-  const [messages, setMessages] = useState<Message[]>([WELCOME_MESSAGE]);
+  const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [attachments, setAttachments] = useState<UploadedFile[]>([]);
   const [showScrollBtn, setShowScrollBtn] = useState(false);
+  const [loadingConvs, setLoadingConvs] = useState(true);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const abortRef = useRef<AbortController | null>(null);
   const chatContainerRef = useRef<HTMLDivElement>(null);
+
+  const user = getUser();
 
   const scrollToBottom = useCallback((smooth = true) => {
     messagesEndRef.current?.scrollIntoView({ behavior: smooth ? "smooth" : "instant" });
@@ -61,62 +73,77 @@ export default function ChatInterface() {
 
   const handleScroll = () => {
     const el = chatContainerRef.current;
-    if (el) {
-      setShowScrollBtn(el.scrollHeight - el.scrollTop - el.clientHeight > 100);
-    }
+    if (el) setShowScrollBtn(el.scrollHeight - el.scrollTop - el.clientHeight > 100);
   };
 
-  const createNewConversation = useCallback(() => {
-    const id = uuidv4();
-    const conv: Conversation = {
-      id,
-      title: "Nouvelle conversation",
-      messages: [{ ...WELCOME_MESSAGE, id: uuidv4(), timestamp: new Date() }],
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    };
-    setConversations((prev) => [conv, ...prev]);
-    setActiveConvId(id);
-    setMessages(conv.messages);
-    setSessionId(null);
-    setAttachments([]);
-    setInput("");
-    setTimeout(() => inputRef.current?.focus(), 100);
-    return id;
+  // Charger les conversations depuis l'API au démarrage
+  useEffect(() => {
+    async function load() {
+      try {
+        const convs = await fetchConversations();
+        setConversations(convs);
+        if (convs.length === 0) {
+          // Pas encore de conversation — afficher le message de bienvenue
+          setMessages([WELCOME_MESSAGE(user?.name)]);
+        }
+      } catch (e) {
+        setMessages([WELCOME_MESSAGE(user?.name)]);
+      } finally {
+        setLoadingConvs(false);
+      }
+    }
+    load();
   }, []);
 
-  useEffect(() => { createNewConversation(); }, []);
-
-  const selectConversation = useCallback((id: string) => {
-    const conv = conversations.find((c) => c.id === id);
-    if (conv) {
-      setActiveConvId(id);
-      setMessages(conv.messages);
-      setSessionId(conv.sessionId || null);
+  const startNewConversation = useCallback(async () => {
+    try {
+      const conv = await createConversation("Nouvelle conversation");
+      setConversations((prev) => [conv, ...prev]);
+      setActiveConvId(conv.id);
+      setSessionId(conv.session_id);
+      setMessages([WELCOME_MESSAGE(user?.name)]);
+      setAttachments([]);
+      setInput("");
+      setTimeout(() => inputRef.current?.focus(), 100);
+      return conv;
+    } catch {
+      // fallback : mode sans persistance
+      const fakeId = uuidv4();
+      setActiveConvId(fakeId);
+      setSessionId(null);
+      setMessages([WELCOME_MESSAGE(user?.name)]);
+      return null;
     }
-  }, [conversations]);
+  }, [user]);
 
-  const deleteConversation = useCallback((id: string) => {
+  const selectConversation = useCallback(async (id: string) => {
+    if (id === activeConvId) return;
+    try {
+      const conv = await fetchConversation(id);
+      setActiveConvId(id);
+      setSessionId(conv.session_id);
+      const loadedMessages = conv.messages.length > 0
+        ? conv.messages
+        : [WELCOME_MESSAGE(user?.name)];
+      setMessages(loadedMessages);
+      setAttachments([]);
+      setInput("");
+    } catch (e) {
+      console.error("Erreur chargement conversation", e);
+    }
+  }, [activeConvId, user]);
+
+  const handleDeleteConversation = useCallback(async (id: string) => {
+    try {
+      await deleteConversation(id);
+    } catch {}
     setConversations((prev) => prev.filter((c) => c.id !== id));
-    if (activeConvId === id) createNewConversation();
-  }, [activeConvId, createNewConversation]);
-
-  const updateConversation = useCallback((msgs: Message[], sid?: string) => {
-    if (!activeConvId) return;
-    setConversations((prev) =>
-      prev.map((c) => {
-        if (c.id !== activeConvId) return c;
-        const firstUser = msgs.find((m) => m.role === "user");
-        return {
-          ...c,
-          messages: msgs,
-          updatedAt: new Date(),
-          sessionId: sid || c.sessionId,
-          title: firstUser?.content.slice(0, 50) || c.title,
-        };
-      })
-    );
-  }, [activeConvId]);
+    if (activeConvId === id) {
+      setActiveConvId(null);
+      setSessionId(null);
+      setMessages([WELCOME_MESSAGE(user?.name)]);
+    }
+  }, [activeConvId, user]);
 
   const handleFileUpload = async (files: FileList | null) => {
     if (!files) return;
@@ -133,24 +160,29 @@ export default function ChatInterface() {
     const question = (questionOverride ?? input).trim();
     if (!question || isLoading) return;
 
+    // Créer une conversation si aucune n'est active
+    let convId = activeConvId;
+    let sid = sessionId;
+    if (!convId) {
+      const conv = await startNewConversation();
+      if (conv) { convId = conv.id; sid = conv.session_id; }
+    }
+
     const fileContext = attachments.map((f) => `[Document: ${f.name}]\n${f.content?.slice(0, 5000)}`).join("\n\n---\n\n");
     const fullQuestion = fileContext ? `${question}\n\n---\nDocuments joints :\n${fileContext}` : question;
 
-    const userMsg: Message = {
-      id: uuidv4(), role: "user", content: question,
-      timestamp: new Date(), attachments: attachments.length > 0 ? [...attachments] : undefined,
-    };
+    const userMsg: Message = { id: uuidv4(), role: "user", content: question, timestamp: new Date(), attachments: attachments.length > 0 ? [...attachments] : undefined };
     const assistantMsg: Message = { id: uuidv4(), role: "assistant", content: "", timestamp: new Date(), isStreaming: true };
-    const newMessages = [...messages, userMsg, assistantMsg];
-    setMessages(newMessages);
+
+    setMessages((prev) => [...prev, userMsg, assistantMsg]);
     setInput("");
     setAttachments([]);
     setIsLoading(true);
 
     const controller = new AbortController();
     abortRef.current = controller;
-    let sid = sessionId;
     let fullContent = "";
+    let finalSource = "rag";
 
     try {
       for await (const chunk of streamChat({ question: fullQuestion, session_id: sid || undefined, model: selectedModel }, controller.signal)) {
@@ -162,18 +194,30 @@ export default function ChatInterface() {
         else if (chunk.type === "error") { fullContent = "Une erreur s'est produite. Veuillez réessayer."; break; }
       }
     } catch (err: any) {
-      if (err.name !== "AbortError") fullContent = "Erreur de connexion à l'API. Vérifiez que le serveur est démarré sur le port 8000.";
+      if (err.name !== "AbortError") fullContent = "Erreur de connexion à l'API. Vérifiez que le serveur est démarré.";
     } finally {
-      const finalMsgs = newMessages.map((m) =>
-        m.id === assistantMsg.id ? { ...m, content: fullContent || "Désolé, je n'ai pas pu générer de réponse.", isStreaming: false, source: "rag" as const } : m
-      );
-      setMessages(finalMsgs);
-      updateConversation(finalMsgs, sid || undefined);
+      setMessages((prev) => prev.map((m) =>
+        m.id === assistantMsg.id ? { ...m, content: fullContent || "Désolé, je n'ai pas pu générer de réponse.", isStreaming: false, source: finalSource as any } : m
+      ));
       setIsLoading(false);
       abortRef.current = null;
       scrollToBottom();
+
+      // Sauvegarder les messages dans la DB
+      if (convId) {
+        try {
+          await saveMessage(convId, "user", question);
+          await saveMessage(convId, "assistant", fullContent || "", finalSource, selectedModel);
+          // Mettre à jour le titre dans la liste locale
+          setConversations((prev) => prev.map((c) =>
+            c.id === convId
+              ? { ...c, title: c.title === "Nouvelle conversation" ? question.slice(0, 50) : c.title, updatedAt: new Date() }
+              : c
+          ));
+        } catch {}
+      }
     }
-  }, [input, messages, isLoading, sessionId, attachments, updateConversation, scrollToBottom]);
+  }, [input, isLoading, sessionId, activeConvId, attachments, startNewConversation, selectedModel, scrollToBottom]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); }
@@ -185,6 +229,17 @@ export default function ChatInterface() {
     e.target.style.height = Math.min(e.target.scrollHeight, 160) + "px";
   };
 
+  if (loadingConvs) {
+    return (
+      <div className="flex h-screen items-center justify-center bg-gray-50">
+        <div className="text-center">
+          <div className="w-10 h-10 border-4 border-comply-600 border-t-transparent rounded-full animate-spin mx-auto mb-3" />
+          <p className="text-sm text-gray-500">Chargement de Comply...</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="flex flex-col h-screen bg-gray-50 overflow-hidden">
       <Header onToggleSidebar={() => setSidebarOpen((p) => !p)} sidebarOpen={sidebarOpen} selectedModel={selectedModel} onModelChange={setSelectedModel} />
@@ -194,18 +249,18 @@ export default function ChatInterface() {
           open={sidebarOpen}
           conversations={conversations}
           activeId={activeConvId}
+          user={user}
           onSelectConversation={selectConversation}
-          onNewConversation={createNewConversation}
-          onDeleteConversation={deleteConversation}
+          onNewConversation={startNewConversation}
+          onDeleteConversation={handleDeleteConversation}
         />
 
         <main className="flex-1 flex flex-col overflow-hidden relative">
-          {/* Messages */}
           <div ref={chatContainerRef} onScroll={handleScroll} className="flex-1 overflow-y-auto px-4 py-6">
             <div className="max-w-3xl mx-auto">
               {messages.map((msg) => <MessageBubble key={msg.id} message={msg} />)}
 
-              {messages.length === 1 && (
+              {messages.length <= 1 && messages[0]?.role === "assistant" && (
                 <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-2">
                   {SUGGESTED_QUESTIONS.map((q) => (
                     <button key={q} onClick={() => sendMessage(q)}
@@ -225,7 +280,6 @@ export default function ChatInterface() {
             </button>
           )}
 
-          {/* Attachments */}
           {attachments.length > 0 && (
             <div className="max-w-3xl mx-auto w-full px-4">
               <div className="flex flex-wrap gap-2 pb-2">
@@ -241,7 +295,6 @@ export default function ChatInterface() {
             </div>
           )}
 
-          {/* Input */}
           <div className="border-t border-gray-200 bg-white px-4 py-3 shadow-sm">
             <div className="max-w-3xl mx-auto">
               <div className="flex items-end gap-2 bg-white border-2 border-gray-200 focus-within:border-comply-400 rounded-2xl px-4 py-2.5 transition-colors">

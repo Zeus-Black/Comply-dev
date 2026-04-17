@@ -287,6 +287,8 @@ class ComplyScraperV3:
         max_pages: int = 1000,
         exclude_patterns: Optional[List[str]] = None,
         min_content_len: int = 150,
+        checkpoint_path: Optional[Path] = None,
+        checkpoint_every: int = 50,
     ) -> List[Dict]:
         """
         Crawl BFS exhaustif d'un domaine.
@@ -341,6 +343,9 @@ class ComplyScraperV3:
                     f"  [{len(results):3d}] {(title or url)[:70]} "
                     f"({len(content):,} chars)"
                 )
+                # Sauvegarde incrémentale pour éviter de tout perdre en cas de crash
+                if checkpoint_path and len(results) % checkpoint_every == 0:
+                    save_json(results, checkpoint_path)
 
             # Ajouter les liens internes à la queue
             new_links = self._get_internal_links(

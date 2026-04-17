@@ -27,17 +27,28 @@ from tqdm import tqdm
 import anthropic
 
 from config import (
+    CACHE_TTL,
     CHUNK_OVERLAP,
     CHUNK_SIZE,
     CLAUDE_API_KEY,
     CLAUDE_MODEL,
     DATA_DIR,
+    DEEPSEEK_API_KEY,
+    DEEPSEEK_BASE_URL,
+    DEEPSEEK_MODELS,
+    GEMINI_API_KEY,
+    GEMINI_BASE_URL,
+    GEMINI_MODELS,
+    GROQ_API_KEY,
+    GROQ_BASE_URL,
+    GROQ_MODELS,
     KIWI_FILE_TYPES,
     MAX_CONTEXT_DOCS,
     MAX_TOKENS,
     MIN_CONFIDENCE,
     MISTRAL_API_KEY,
     MISTRAL_MODELS,
+    REDIS_URL,
     TEMPERATURE,
     VECTOR_DB_PATH,
 )
@@ -119,10 +130,27 @@ class ComplyRAG:
 
         # Mistral
         if MISTRAL_API_KEY:
-            from mistralai import Mistral
+            from mistralai.client import Mistral
             self._mistral = Mistral(api_key=MISTRAL_API_KEY)
         else:
             self._mistral = None
+
+        # DeepSeek + Gemini + Groq (OpenAI-compatible)
+        from openai import AsyncOpenAI
+        self._deepseek = AsyncOpenAI(api_key=DEEPSEEK_API_KEY, base_url=DEEPSEEK_BASE_URL) if DEEPSEEK_API_KEY else None
+        self._gemini = AsyncOpenAI(api_key=GEMINI_API_KEY, base_url=GEMINI_BASE_URL) if GEMINI_API_KEY else None
+        self._groq = AsyncOpenAI(api_key=GROQ_API_KEY, base_url=GROQ_BASE_URL) if GROQ_API_KEY else None
+
+        # Redis cache
+        self._redis = None
+        try:
+            import redis
+            r = redis.from_url(REDIS_URL, decode_responses=True, socket_connect_timeout=2)
+            r.ping()
+            self._redis = r
+            logger.info("Cache Redis connecte")
+        except Exception as e:
+            logger.warning(f"Redis indisponible, cache desactive : {e}")
 
         # Web search
         from config import ENABLE_WEB_SEARCH
@@ -340,8 +368,8 @@ class ComplyRAG:
         contents = [d["content"] for d in self._documents]
 
         self._vectorizer = TfidfVectorizer(
-            max_features=10000,
-            ngram_range=(1, 3),
+            max_features=5000,
+            ngram_range=(1, 2),
             min_df=1,
             max_df=0.9,
             stop_words=FRENCH_STOPWORDS,
@@ -481,26 +509,114 @@ class ComplyRAG:
             return self._format_context(results), "rag", confidence, len(results)
         return "", "general", 0.0, 0
 
+    # ── Cache Redis ───────────────────────────────────────────────────────────
+
+    def _cache_key(self, question: str, model: str) -> str:
+        """Génère une clé de cache unique basée sur la question et le modèle."""
+        raw = f"{question.lower().strip()}:{model}"
+        return "comply:" + hashlib.sha256(raw.encode()).hexdigest()
+
+    def _cache_get(self, question: str, model: str) -> Optional[str]:
+        if not self._redis:
+            return None
+        try:
+            return self._redis.get(self._cache_key(question, model))
+        except Exception:
+            return None
+
+    def _cache_set(self, question: str, model: str, response: str):
+        if not self._redis:
+            return
+        try:
+            self._redis.setex(self._cache_key(question, model), CACHE_TTL, response)
+        except Exception:
+            pass
+
+    def cache_flush(self):
+        """Vide tout le cache (appelé lors d'une réindexation)."""
+        if not self._redis:
+            return
+        try:
+            keys = self._redis.keys("comply:*")
+            if keys:
+                self._redis.delete(*keys)
+            logger.info(f"Cache Redis vide ({len(keys)} entrees supprimees)")
+        except Exception as e:
+            logger.warning(f"Erreur flush cache : {e}")
+
     def _mistral_messages(self, system: str, messages: List[Dict]) -> List[Dict]:
         """Convertit le format Anthropic (system séparé) vers le format Mistral (system en premier message)."""
         return [{"role": "system", "content": system}] + messages
 
     def answer(self, question: str, session_id: Optional[str] = None, model: Optional[str] = None) -> Dict[str, Any]:
+        use_model = model or CLAUDE_MODEL
+
+        # Cache hit — pas d'appel LLM si déjà en cache (hors sessions avec historique)
+        if not session_id:
+            cached = self._cache_get(question, use_model)
+            if cached:
+                logger.info(f"Cache hit : {question[:60]}")
+                return {
+                    "answer": cached,
+                    "source": "cache",
+                    "confidence": 1.0,
+                    "documents_found": 0,
+                    "session_id": None,
+                    "model": use_model,
+                }
+
         context, source, confidence, docs_found = self._get_context(question)
 
         messages = self._build_messages(question, session_id)
         system = SYSTEM_PROMPT.format(context=context if context else "Aucun document trouvé dans la base de connaissances pour cette question.")
 
-        use_model = model or CLAUDE_MODEL
-
         if use_model in MISTRAL_MODELS:
             if not self._mistral:
-                raise ValueError("Clé API Mistral non configurée (MISTRAL_API_KEY manquant)")
+                raise ValueError("Clé API Mistral non configurée")
             response = self._mistral.chat.complete(
                 model=use_model,
                 messages=self._mistral_messages(system, messages),
                 max_tokens=MAX_TOKENS,
                 temperature=TEMPERATURE,
+            )
+            answer_text = response.choices[0].message.content
+        elif use_model in DEEPSEEK_MODELS:
+            if not self._deepseek:
+                raise ValueError("Clé API DeepSeek non configurée")
+            import asyncio
+            response = asyncio.get_event_loop().run_until_complete(
+                self._deepseek.chat.completions.create(
+                    model=use_model,
+                    messages=self._mistral_messages(system, messages),
+                    max_tokens=MAX_TOKENS,
+                    temperature=TEMPERATURE,
+                )
+            )
+            answer_text = response.choices[0].message.content
+        elif use_model in GEMINI_MODELS:
+            if not self._gemini:
+                raise ValueError("Clé API Gemini non configurée")
+            import asyncio
+            response = asyncio.get_event_loop().run_until_complete(
+                self._gemini.chat.completions.create(
+                    model=use_model,
+                    messages=self._mistral_messages(system, messages),
+                    max_tokens=MAX_TOKENS,
+                    temperature=TEMPERATURE,
+                )
+            )
+            answer_text = response.choices[0].message.content
+        elif use_model in GROQ_MODELS:
+            if not self._groq:
+                raise ValueError("Clé API Groq non configurée")
+            import asyncio
+            response = asyncio.get_event_loop().run_until_complete(
+                self._groq.chat.completions.create(
+                    model=use_model,
+                    messages=self._mistral_messages(system, messages),
+                    max_tokens=MAX_TOKENS,
+                    temperature=TEMPERATURE,
+                )
             )
             answer_text = response.choices[0].message.content
         else:
@@ -518,6 +634,8 @@ class ComplyRAG:
                 {"role": "user", "content": question},
                 {"role": "assistant", "content": answer_text},
             ])
+        else:
+            self._cache_set(question, use_model, answer_text)
 
         return {
             "answer": answer_text,
@@ -529,22 +647,32 @@ class ComplyRAG:
         }
 
     async def stream_answer(self, question: str, session_id: Optional[str] = None, model: Optional[str] = None) -> AsyncGenerator[str, None]:
+        use_model = model or CLAUDE_MODEL
+        full_response = ""
+
+        # Cache hit — stream la réponse cached token par token
+        if not session_id:
+            cached = self._cache_get(question, use_model)
+            if cached:
+                logger.info(f"Cache hit (stream) : {question[:60]}")
+                chunk_size = 8
+                for i in range(0, len(cached), chunk_size):
+                    yield cached[i:i + chunk_size]
+                    await asyncio.sleep(0.01)
+                return
+
         context, source, confidence, docs_found = self._get_context(question)
 
         messages = self._build_messages(question, session_id)
         system = SYSTEM_PROMPT.format(context=context if context else "Aucun document trouvé dans la base de connaissances pour cette question.")
 
-        use_model = model or CLAUDE_MODEL
-        full_response = ""
-
         if use_model in MISTRAL_MODELS:
             if not self._mistral:
                 yield "Erreur : clé API Mistral non configurée."
                 return
-            mistral_msgs = self._mistral_messages(system, messages)
             async with self._mistral.chat.stream_async(
                 model=use_model,
-                messages=mistral_msgs,
+                messages=self._mistral_messages(system, messages),
                 max_tokens=MAX_TOKENS,
                 temperature=TEMPERATURE,
             ) as stream:
@@ -553,6 +681,58 @@ class ComplyRAG:
                     if content:
                         full_response += content
                         yield content
+
+        elif use_model in DEEPSEEK_MODELS:
+            if not self._deepseek:
+                yield "Erreur : clé API DeepSeek non configurée."
+                return
+            stream = await self._deepseek.chat.completions.create(
+                model=use_model,
+                messages=self._mistral_messages(system, messages),
+                max_tokens=MAX_TOKENS,
+                temperature=TEMPERATURE,
+                stream=True,
+            )
+            async for chunk in stream:
+                content = chunk.choices[0].delta.content
+                if content:
+                    full_response += content
+                    yield content
+
+        elif use_model in GEMINI_MODELS:
+            if not self._gemini:
+                yield "Erreur : clé API Gemini non configurée."
+                return
+            stream = await self._gemini.chat.completions.create(
+                model=use_model,
+                messages=self._mistral_messages(system, messages),
+                max_tokens=MAX_TOKENS,
+                temperature=TEMPERATURE,
+                stream=True,
+            )
+            async for chunk in stream:
+                content = chunk.choices[0].delta.content
+                if content:
+                    full_response += content
+                    yield content
+
+        elif use_model in GROQ_MODELS:
+            if not self._groq:
+                yield "Erreur : clé API Groq non configurée."
+                return
+            stream = await self._groq.chat.completions.create(
+                model=use_model,
+                messages=self._mistral_messages(system, messages),
+                max_tokens=MAX_TOKENS,
+                temperature=TEMPERATURE,
+                stream=True,
+            )
+            async for chunk in stream:
+                content = chunk.choices[0].delta.content
+                if content:
+                    full_response += content
+                    yield content
+
         else:
             async with self._async_claude.messages.stream(
                 model=use_model,
@@ -570,6 +750,8 @@ class ComplyRAG:
                 {"role": "user", "content": question},
                 {"role": "assistant", "content": full_response},
             ])
+        else:
+            self._cache_set(question, use_model, full_response)
 
     # ─────────────────────────────────────────────────────────────────────────
     # Utilitaires

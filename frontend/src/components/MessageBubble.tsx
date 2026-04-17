@@ -105,11 +105,6 @@ export default function MessageBubble({ message }: MessageBubbleProps) {
             <SourceBadge source={message.source} />
           )}
 
-          {message.documentsFound !== undefined && message.documentsFound > 0 && (
-            <span className="text-xs text-gray-400">
-              {message.documentsFound} source{message.documentsFound > 1 ? "s" : ""}
-            </span>
-          )}
 
           {!message.isStreaming && message.content && (
             <button

@@ -2,12 +2,20 @@
 
 import Image from "next/image";
 import { useState, useRef, useEffect } from "react";
-import { ChevronDown } from "lucide-react";
+import { ChevronDown, LogOut } from "lucide-react";
+import { useRouter } from "next/navigation";
 
 export const MODELS = [
   { id: "claude-sonnet-4-6", label: "Claude Sonnet 4.6", provider: "Anthropic" },
-  { id: "mistral-large-latest", label: "Mistral Large", provider: "Mistral" },
-  { id: "mistral-small-latest", label: "Mistral Small", provider: "Mistral" },
+  { id: "open-mixtral-8x7b", label: "Mixtral 8x7B", provider: "Mistral" },
+  { id: "open-mistral-7b", label: "Mistral 7B", provider: "Mistral" },
+  { id: "deepseek-chat", label: "DeepSeek V3", provider: "DeepSeek" },
+  { id: "deepseek-reasoner", label: "DeepSeek R1", provider: "DeepSeek" },
+  { id: "gemini-2.0-flash", label: "Gemini 2.0 Flash", provider: "Google" },
+  { id: "gemini-1.5-flash", label: "Gemini 1.5 Flash", provider: "Google" },
+  { id: "llama-3.3-70b-versatile", label: "Llama 3.3 70B", provider: "Groq" },
+  { id: "llama-3.1-8b-instant", label: "Llama 3.1 8B", provider: "Groq" },
+  { id: "qwen-qwq-32b", label: "Qwen QwQ 32B", provider: "Groq" },
 ];
 
 interface HeaderProps {
@@ -18,8 +26,14 @@ interface HeaderProps {
 }
 
 export default function Header({ onToggleSidebar, sidebarOpen, selectedModel, onModelChange }: HeaderProps) {
+  const router = useRouter();
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+
+  async function handleLogout() {
+    await fetch("/api/auth/logout", { method: "POST" });
+    router.push("/login");
+  }
 
   const current = MODELS.find((m) => m.id === selectedModel) ?? MODELS[0];
 
@@ -56,6 +70,15 @@ export default function Header({ onToggleSidebar, sidebarOpen, selectedModel, on
       </div>
 
       <div className="flex-1" />
+
+      {/* Déconnexion */}
+      <button
+        onClick={handleLogout}
+        title="Se déconnecter"
+        className="p-2 rounded-lg hover:bg-red-50 transition-colors text-gray-400 hover:text-red-500"
+      >
+        <LogOut className="w-4 h-4" />
+      </button>
 
       {/* Sélecteur de modèle */}
       <div ref={ref} className="relative">

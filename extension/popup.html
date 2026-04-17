@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Comply</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <!-- Header -->
+  <div id="header">
+    <div class="logo">
+      Comply
+      <span>Assistant JE</span>
+    </div>
+    <div class="header-actions">
+      <button class="icon-btn" id="btn-clear" title="Effacer la conversation">&#8635;</button>
+      <button class="icon-btn" id="btn-settings" title="Paramètres">&#9881;</button>
+    </div>
+  </div>
+
+  <!-- Panneau paramètres -->
+  <div id="settings-panel" class="hidden">
+    <label>URL de l'API Comply</label>
+    <input type="text" id="api-url-input" placeholder="http://localhost:8000" />
+    <button id="btn-save-settings">Enregistrer</button>
+  </div>
+
+  <!-- Bandeau contexte page -->
+  <div id="page-context" class="hidden">
+    <span id="page-context-icon">&#128196;</span>
+    <span id="page-context-title">Page actuelle</span>
+    <button id="btn-toggle-context" class="active">Utiliser</button>
+  </div>
+
+  <!-- Messages -->
+  <div id="messages">
+    <div class="message assistant">
+      Bonjour&nbsp;! Je suis <strong>Comply</strong>, l'assistant des Junior-Entreprises.<br/><br/>
+      Je peux analyser la page ouverte ou répondre à vos questions sur les JE, la réglementation, les formations et la RSE.
+    </div>
+  </div>
+
+  <!-- Zone de saisie -->
+  <div id="input-area">
+    <textarea
+      id="input"
+      placeholder="Votre question..."
+      rows="2"
+      autocomplete="off"
+      spellcheck="true"
+    ></textarea>
+    <button id="btn-send" title="Envoyer">&#10148;</button>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
